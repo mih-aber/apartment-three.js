@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>CS32310 Advanced Computer Graphics Assignment </title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="res/css/main.css" />
+        <script src="res/js/three.min.js"></script>
+        <script src="res/js/OrbitControls.js"></script>
+        <script src="res/js/FirstPersonControls.js"></script>
+        <script src="res/js/Detector.js"></script>
+        <script src="res/js/stats.min.js"></script>
+        <script src="res/js/dat.gui.min.js"></script>
+        <script src="res/js/GPUParticleSystem.js"></script>
+        <script src="res/js/jquery-3.1.1.min.js"></script>
+    </head>
+    <body>
+        <div id="WebGLCanvas"></div>
+        <script>
+            var scene = new THREE.Scene();
+            var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+            var JSONLoader = new THREE.JSONLoader();
+            var textureLoader = new THREE.TextureLoader();
+            var stats;
+            var lights = [ ];
+            var currentLightIntensity = 0.5;
+            var controlsOrbit = true;
+            var rayCaster = new THREE.Raycaster();
+            var mouse = new THREE.Vector2();
+            var clock = new THREE.Clock();
+            var doorsToOpen = [ ];
+            var doorsToClose = [ ];
+            var doors = [ ];
+            var bathParticleSystem;
+            var bathroom2SinkParticleSystem;
+            var kitchenSinkParticleSystem;
+
+            var count = 0;
+
+            var renderer;
+            var controls;
+
+            var greyCarpetTexture = textureLoader.load( 'res/images/grey-carpet.jpg' );
+            var wallPaintTexture = textureLoader.load( 'res/images/wall-paint.jpg' );
+            var woodFlooringTexture = textureLoader.load( 'res/images/wood-flooring.jpg' );
+            var brickTexture = textureLoader.load( 'res/images/brick.jpg' );
+            var concreteTexture = textureLoader.load( 'res/images/concrete.jpg' );
+            var woodTexture = textureLoader.load( 'res/images/wood.jpg' );
+            var whitePaintTexture = textureLoader.load( 'res/images/white-paint.jpg' );
+            var lightWoodTexture = textureLoader.load( 'res/images/door.jpg' );
+            var brassTexture = textureLoader.load( 'res/images/brass.jpg' );
+            var tileFlooringTexture = textureLoader.load( 'res/images/tile-flooring.jpg' );
+            var blueFabricTexture = textureLoader.load( 'res/images/blue-fabric.jpg' );
+            var greyMetalTexture = textureLoader.load( 'res/images/grey-metal.jpg' );
+            var blackFabricTexture = textureLoader.load( 'res/images/black-fabric.jpg' );
+            var ceramicTexture = textureLoader.load( 'res/images/ceramic.jpg' );
+            var greenWoodTexture = textureLoader.load( 'res/images/green-wood.jpg' );
+            var blackWoodTexture = textureLoader.load( 'res/images/black-wood.jpg' );
+            var blackPlasticTexture = textureLoader.load( 'res/images/black-plastic.jpg' );
+            var redMetalTexture = textureLoader.load( 'res/images/red-metal.jpg' );
+
+            var guiSettings = {
+                switchControls: function ()
+                {
+                    switchControls();
+                },
+                intensity: currentLightIntensity
+            };
+
+            function initScene()
+            {
+                if ( Detector.webgl )
+                {
+                    renderer = new THREE.WebGLRenderer( { antialias: true } );
+                }
+                else
+                {
+                    renderer = new THREE.CanvasRenderer( );
+                }
+                renderer.setSize( window.innerWidth, window.innerHeight );
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                var container = document.getElementById( "WebGLCanvas" );
+                container.appendChild( renderer.domElement );
+
+                // STATS
+                stats = new Stats();
+
+                container.appendChild( stats.domElement );
+
+                camera = new THREE.PerspectiveCamera( 80, window.innerWidth / window.innerHeight, 1, 1000 );
+                camera.position.x = -40;
+                camera.position.y = 150;
+                camera.position.z = 100;
+                camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+                controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+                var light = new THREE.AmbientLight( 0x404040, 0.3 ); // soft white light
+                scene.add( light );
+
+                document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+
+                var gui = new dat.GUI();
+
+                gui.add( guiSettings, "switchControls" );
+                gui.add( guiSettings, "intensity", 0, 2 ).onChange( function ()
+                {
+                    for ( var i = 0; i < lights.length; i++ )
+                    {
+                        lights[i].intensity = guiSettings.intensity;
+                    }
+                } );
+
+                loadApartment();
+
+                animate();
+            }
+
+            function onDocumentMouseMove( event )
+            {
+                event.preventDefault();
+                mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+                mouse.y = -( event.clientY / window.innerHeight ) * 2 + 1;
+            }
+
+            document.body.onkeyup = function ( e )
+            {
+                if ( e.keyCode === 32 )
+                {
+                    switchControls();
+                }
+                else if ( e.keyCode === 79 )
+                {
+                    toggleDoor();
+                }
+            };
+
+            function toggleDoor()
+            {
+                rayCaster.setFromCamera( mouse, camera );
+
+                var intersects = rayCaster.intersectObjects( doors, true );
+
+                if ( intersects.length > 0 )
+                {
+                    var door = intersects[0].object;
+                    if ( door.name === "door" )
+                    {
+                        if ( door.state === "closed" )
+                        {
+                            door.state = "open";
+
+                            // check this door is already closing, if so, remove it from doorsToClose
+                            for ( var i = 0; i < doorsToClose.length; i++ )
+                            {
+                                if ( doorsToClose[i].index === door.index )
+                                {
+                                    doorsToClose.splice( i, 1 );
+                                }
+                            }
+
+                            doorsToOpen.push( doors[door.index] );
+                        }
+                        else if ( door.state === "open" )
+                        {
+                            door.state = "closed";
+                            for ( var i = 0; i < doorsToOpen.length; i++ )
+                            {
+                                if ( doorsToOpen[i].index === door.index )
+                                {
+                                    doorsToOpen.splice( i, 1 );
+                                }
+                            }
+                            doorsToClose.push( doors[door.index] );
+                        }
+                    }
+                }
+
+            }
+
+            function switchControls()
+            {
+                controlsOrbit = !controlsOrbit;
+
+                var prevCamera = camera;
+                camera = new THREE.PerspectiveCamera( 120, window.innerWidth / window.innerHeight, 1, 1000 );
+                camera.position.copy( prevCamera.position );
+                camera.rotation.copy( prevCamera.rotation );
+
+                if ( controlsOrbit === true )
+                {
+                    controls = new THREE.OrbitControls( camera, renderer.domElement );
+                }
+                else
+                {
+                    controls = new THREE.FirstPersonControls( camera );
+                    controls.lookSpeed = 0.4;
+                    controls.movementSpeed = 100;
+                    controls.lon = -150;
+                    controls.lat = 120;
+                }
+            }
+
+            function animate()
+            {
+                requestAnimationFrame( animate );
+                render();
+                update();
+            }
+
+            function render()
+            {
+                renderer.render( scene, camera );
+            }
+
+            function update()
+            {
+                if ( doorsToOpen.length > 0 )
+                {
+                    for ( var i = 0; i < doorsToOpen.length; i++ )
+                    {
+                        if ( doorsToOpen[i].currentRotation < 1.5 )
+                        {
+                            doorsToOpen[i].parent.rotation.y += 0.04;
+                            doorsToOpen[i].currentRotation += 0.04;
+                        }
+                        else
+                        {
+                            doorsToOpen.splice( i, 1 );
+                        }
+                    }
+                }
+
+                if ( doorsToClose.length > 0 )
+                {
+                    for ( var i = 0; i < doorsToClose.length; i++ )
+                    {
+                        if ( doorsToClose[i].currentRotation > 0 )
+                        {
+                            doorsToClose[i].parent.rotation.y -= 0.04;
+                            doorsToClose[i].currentRotation -= 0.04;
+                        }
+                        else
+                        {
+                            doorsToClose.splice( i, 1 );
+                        }
+                    }
+                }
+
+                for ( var i = 0; i < bathParticleSystem.geometry.vertices.length; i++ )
+                {
+                    bathParticleSystem.geometry.vertices[i].y = Math.sin( ( i + count ) * 0.2 ) * 15;
+                }
+                bathParticleSystem.geometry.verticesNeedUpdate = true;
+
+                for ( var i = 0; i < kitchenSinkParticleSystem.geometry.vertices.length; i++ )
+                {
+                    kitchenSinkParticleSystem.geometry.vertices[i].y = Math.sin( ( i + count ) * 0.2 ) * 3;
+                }
+                kitchenSinkParticleSystem.geometry.verticesNeedUpdate = true;
+
+                for ( var i = 0; i < bathroom2SinkParticleSystem.geometry.vertices.length; i++ )
+                {
+                    bathroom2SinkParticleSystem.geometry.vertices[i].y = Math.sin( ( i + count ) * 0.2 ) * 1.5;
+                }
+                bathroom2SinkParticleSystem.geometry.verticesNeedUpdate = true;
+                for ( var i = 0; i < bathroom1SinkParticleSystem.geometry.vertices.length; i++ )
+                {
+                    bathroom1SinkParticleSystem.geometry.vertices[i].y = Math.sin( ( i + count ) * 0.2 ) * 1.5;
+                }
+                bathroom1SinkParticleSystem.geometry.verticesNeedUpdate = true;
+                count += 0.1;
+
+                controls.update( clock.getDelta() );
+                stats.update();
+            }
+
+            /*
+             * -----------------------------------------------------------------
+             * Loading in Apartment
+             * -----------------------------------------------------------------
+             */
+
+            function loadApartment()
+            {
+                loadBedroom1();
+                loadBedroom2();
+                loadHallway();
+                loadBathroom1();
+                loadBathroom2();
+                loadCupboard();
+                loadLounge();
+                loadKitchen();
+                loadFrame();
+                addDoors();
+                addWindows();
+            }
+
+            function loadBedroom1()
+            {
+                var bedroom = new THREE.Object3D();
+
+                greyCarpetTexture.wrapS = greyCarpetTexture.wrapT = THREE.RepeatWrapping;
+                greyCarpetTexture.repeat.set( 5, 5 );
+                wallPaintTexture.wrapS = wallPaintTexture.wrapT = THREE.RepeatWrapping;
+                wallPaintTexture.repeat.set( 6, 6 );
+
+                // flooring
+                bedroom.add( createBox( greyCarpetTexture, 200, 3, 200, 0, 0, 0 ) );
+                // ceiling
+                bedroom.add( createBox( wallPaintTexture, 200, 3, 200, 0, 200, 0 ) );
+                // north wall - contains window - 4 parts (-z)
+                bedroom.add( createBox( wallPaintTexture, 200, 100, 3, 0, 50, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 200, 20, 3, 0, 190, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 80, 80, 3, 60, 140, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 40, 80, 3, -80, 140, -100 ) );
+                // east wall (x)
+                bedroom.add( createBox( wallPaintTexture, 3, 200, 200, 100, 100, 0 ) );
+                // south wall - contains door - 3 parts (z) 
+                bedroom.add( createBox( wallPaintTexture, 10, 200, 3, -95, 100, 100 ) );
+                bedroom.add( createBox( wallPaintTexture, 130, 200, 3, 35, 100, 100 ) );
+                bedroom.add( createBox( wallPaintTexture, 60, 30, 3, -60, 185, 100 ) );
+                // west wall (-x)
+                bedroom.add( createBox( wallPaintTexture, 3, 200, 200, -100, 100, 0 ) );
+
+                // light
+                bedroom.add( createPointLight( 0xffd6aa, 0, 180, 0, currentLightIntensity ) );
+
+                // objects
+
+                // light
+                loadObject( 'res/models/light-fixture.json', wallPaintTexture, -100, 180, 100, 30, 30, 30 );
+                loadObject( 'res/models/light-shade.json', wallPaintTexture, -100, 180, 100, 30, 30, 30, 0, 0, 0, 0.9 );
+
+                // bed 
+                loadObject( 'res/models/bed.json', lightWoodTexture, -142, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/mattress.json', blueFabricTexture, -142, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/pillow.json', blueFabricTexture, -97, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/pillow.json', blueFabricTexture, -142, 0, 65, 35, 45, 30 );
+
+                // wardrobe 1
+                loadObject( 'res/models/wardrobe.json', wallPaintTexture, -65, 0, 30, 25, 40, 34 );
+                loadObject( 'res/models/wardrobe-handles.json', brassTexture, -65, 0, 30, 25, 40, 34 );
+
+                // wardrobe 2
+                loadObject( 'res/models/wardrobe.json', wallPaintTexture, 90, 0, 31, 25, 40, 34, 0, ( 3 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/wardrobe-handles.json', brassTexture, 90, 0, 31, 25, 40, 34, 0, ( 3 * Math.PI ) / 2, 0 );
+
+                // desk
+                loadObject( 'res/models/desk-frame.json', greyMetalTexture, 156, 0, 31, 22, 40, 50, 0, ( 3 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/desk-backboard-top.json', lightWoodTexture, 156, 0, 31, 22, 40, 50, 0, ( 3 * Math.PI ) / 2, 0 );
+
+                // office chair
+                loadObject( 'res/models/office-chair.json', blackFabricTexture, -70, 0, 165, 40, 40, 40 );
+
+                // lindenmayer plant
+                loadPlant();
+
+                bedroom.translateX( -100 );
+                bedroom.translateZ( 100 );
+
+                scene.add( bedroom );
+            }
+
+            function loadBedroom2()
+            {
+                var bedroom = new THREE.Object3D();
+
+                // flooring
+                bedroom.add( createBox( greyCarpetTexture, 250, 3, 200, -25, 0, 0 ) );
+                // ceiling
+                bedroom.add( createBox( wallPaintTexture, 250, 3, 200, -25, 200, 0 ) );
+                // north wall - contains window - 4 parts (-z)
+                bedroom.add( createBox( wallPaintTexture, 250, 100, 3, -25, 50, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 250, 20, 3, -25, 190, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 40, 80, 3, -130, 140, -100 ) );
+                bedroom.add( createBox( wallPaintTexture, 130, 80, 3, 35, 140, -100 ) );
+                // east wall (x)
+                bedroom.add( createBox( wallPaintTexture, 3, 200, 200, 100, 100, 0 ) );
+                // south wall - contains door - 3 parts (z) 
+                bedroom.add( createBox( wallPaintTexture, 10, 200, 3, 95, 100, 100 ) );
+                bedroom.add( createBox( wallPaintTexture, 180, 200, 3, -60, 100, 100 ) );
+                bedroom.add( createBox( wallPaintTexture, 60, 30, 3, 60, 185, 100 ) );
+                // west wall (-x)
+                bedroom.add( createBox( wallPaintTexture, 3, 200, 200, -150, 100, 0 ) );
+
+                // light
+                bedroom.add( createPointLight( 0xffd6aa, 0, 180, 0, 0.7 ) );
+
+                // objects
+
+                // light
+                loadObject( 'res/models/light-fixture.json', wallPaintTexture, -308, 180, 100, 30, 30, 30 );
+                loadObject( 'res/models/light-shade.json', wallPaintTexture, -308, 180, 100, 30, 30, 30, 0, 0, 0, 0.9 );
+
+                // bed
+                loadObject( 'res/models/bed.json', lightWoodTexture, -266, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/mattress.json', blueFabricTexture, -266, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/pillow.json', blueFabricTexture, -221, 0, 65, 35, 45, 30 );
+                loadObject( 'res/models/pillow.json', blueFabricTexture, -266, 0, 65, 35, 45, 30 );
+
+                // wardrobe 1
+                loadObject( 'res/models/wardrobe.json', wallPaintTexture, 383, 0, -165, 25, 40, 34, 0, ( 2 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/wardrobe-handles.json', brassTexture, 383, 0, -165, 25, 40, 34, 0, ( 2 * Math.PI ) / 2, 0 );
+
+                // wardrobe 2
+                loadObject( 'res/models/wardrobe.json', wallPaintTexture, 433, 0, -165, 25, 40, 34, 0, ( 2 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/wardrobe-handles.json', brassTexture, 433, 0, -165, 25, 40, 34, 0, ( 2 * Math.PI ) / 2, 0 );
+
+                // desk
+                loadObject( 'res/models/desk-frame.json', greyMetalTexture, -40, 0, -424, 20, 40, 40, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/desk-backboard-top.json', lightWoodTexture, -40, 0, -424, 20, 40, 40, 0, Math.PI / 2, 0 );
+
+                // office chair
+                loadObject( 'res/models/office-chair.json', blackFabricTexture, 400, 0, -43, 40, 40, 40, 0, Math.PI, 0 );
+
+                bedroom.translateX( -308 );
+                bedroom.translateZ( 100 );
+
+                scene.add( bedroom );
+            }
+
+            function loadHallway()
+            {
+                var hallway = new THREE.Object3D();
+
+                // flooring
+                hallway.add( createBox( greyCarpetTexture, 286, 3, 80, 0, 0, 0 ) );
+                hallway.add( createBox( greyCarpetTexture, 80, 3, 208, -17, 0, 144 ) );
+                // ceiling
+                hallway.add( createBox( wallPaintTexture, 286, 3, 80, 0, 200, 0 ) );
+                hallway.add( createBox( wallPaintTexture, 80, 3, 208, -17, 200, 144 ) );
+                // north wall (-z)
+                hallway.add( createBox( wallPaintTexture, 130, 175, 3, 78, 87.5, -40 ) );
+                hallway.add( createBox( wallPaintTexture, 286, 30, 3, 0, 185, -40 ) );
+                hallway.add( createBox( wallPaintTexture, 28, 170, 3, -61, 85, -40 ) );
+                hallway.add( createBox( wallPaintTexture, 10, 170, 3, -138, 85, -40 ) );
+                // east wall (x)
+                hallway.add( createBox( wallPaintTexture, 3, 200, 10, -143, 100, -35 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 30, 60, -143, 185, 0 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 200, 10, -143, 100, 35 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 170, 18, -57, 85, 49 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 30, 208, -57, 185, 144 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 170, 44, -57, 85, 140 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 170, 26, -57, 85, 235 ) );
+                // south wall (z) 
+                hallway.add( createBox( wallPaintTexture, 86, 200, 3, -100, 100, 40 ) );
+                hallway.add( createBox( wallPaintTexture, 10, 200, 3, 18, 100, 248 ) );
+                hallway.add( createBox( wallPaintTexture, 60, 30, 3, -17, 185, 248 ) );
+                hallway.add( createBox( wallPaintTexture, 10, 200, 3, -52, 100, 248 ) );
+                hallway.add( createBox( wallPaintTexture, 120, 200, 3, 83, 100, 40 ) );
+                // west wall - contains door - 3 parts (-x)
+                hallway.add( createBox( wallPaintTexture, 3, 200, 208, 23, 100, 144 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 200, 10, 143, 100, 35 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 30, 60, 143, 185, 0 ) );
+                hallway.add( createBox( wallPaintTexture, 3, 200, 10, 143, 100, -35 ) );
+
+                // light
+                hallway.add( createPointLight( 0xffd6aa, 0, 180, 0, 0.7 ) );
+
+                // objects
+
+                // light
+                loadObject( 'res/models/light-fixture.json', wallPaintTexture, -145, 180, 250, 30, 30, 30 );
+                loadObject( 'res/models/hallway-light-shade.json', wallPaintTexture, -145, 185, 250, 30, 30, 30, 0, 0, 0, 0.9 );
+
+                hallway.translateX( -143 );
+                hallway.translateZ( 248 );
+
+                scene.add( hallway );
+            }
+
+            function loadBathroom1()
+            {
+                var bathroom = new THREE.Object3D();
+
+                tileFlooringTexture.wrapS = tileFlooringTexture.wrapT = THREE.RepeatWrapping;
+                tileFlooringTexture.repeat.set( 3, 3 );
+
+                // flooring
+                bathroom.add( createBox( tileFlooringTexture, 162, 3, 80, 0, 0, 0 ) );
+                // ceiling
+                bathroom.add( createBox( wallPaintTexture, 162, 3, 80, 0, 200, 0 ) );
+                // north wall (-z)
+                bathroom.add( createBox( wallPaintTexture, 162, 200, 3, 0, 100, -40 ) );
+                // east wall (x)
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 80, -81, 100, 0 ) );
+                // south wall (z) 
+                bathroom.add( createBox( wallPaintTexture, 162, 200, 3, 0, 100, 40 ) );
+                // west wall - contains door - 3 parts (-x)
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 10, 81, 100, -35 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 30, 60, 81, 185, 0 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 10, 81, 100, 35 ) );
+
+                // light
+                bathroom.add( createPointLight( 0xffd6aa, 0, 180, 0, 0.7 ) );
+
+                // objects
+
+                // light
+                loadObject( 'res/models/bathroom-light.json', wallPaintTexture, -380, 197, 250, 50, 60, 50, 0, 0, 0, 0.9 );
+
+                // toilet
+                loadObject( 'res/models/toilet.json', ceramicTexture, -250, 20, -425, 50, 60, 50, 0, Math.PI / 2, 0 );
+
+                // sink
+                loadObject( 'res/models/sink.json', ceramicTexture, 270, 0, 380, 50, 60, 50, 0, ( 3 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/sink-taps.json', brassTexture, 270, 0, 380, 50, 60, 50, 0, ( 3 * Math.PI ) / 2, 0 );
+
+                bathroom1SinkParticleSystem = createParticleSystem( -14, 51, 13, 24, 20, 18 );
+                bathroom.add( bathroom1SinkParticleSystem );
+
+                bathroom.translateX( -377 );
+                bathroom.translateZ( 248 );
+
+                scene.add( bathroom );
+            }
+
+            function loadBathroom2()
+            {
+                var bathroom = new THREE.Object3D();
+
+                // flooring - 2 parts
+                bathroom.add( createBox( tileFlooringTexture, 250, 3, 80, 0, 0, -40 ) );
+                bathroom.add( createBox( tileFlooringTexture, 140, 3, 120, -55, 0, 60 ) );
+                // ceiling - 2 parts
+                bathroom.add( createBox( wallPaintTexture, 250, 3, 80, 0, 200, -40 ) );
+                bathroom.add( createBox( wallPaintTexture, 140, 3, 120, -55, 200, 60 ) );
+                // north wall (-z)
+                bathroom.add( createBox( wallPaintTexture, 250, 200, 3, 0, 100, -80 ) );
+                // east wall  - contains door and indented wall - 3 parts (x)
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 120, 15, 100, 60 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 30, 60, 125, 185, -40 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 10, 125, 100, -5 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 10, 125, 100, -75 ) );
+                // south wall - contains indented wall - 2 parts (z) 
+                bathroom.add( createBox( wallPaintTexture, 140, 200, 3, -55, 100, 120 ) );
+                bathroom.add( createBox( wallPaintTexture, 110, 200, 3, 70, 100, 0 ) );
+                // west wall (-x)
+                bathroom.add( createBox( wallPaintTexture, 3, 200, 200, -125, 100, 20 ) );
+                // next to bath surface - 3 parts 
+                bathroom.add( createBox( wallPaintTexture, 40, 3, 60, -105, 40, 90 ) );
+                bathroom.add( createBox( wallPaintTexture, 40, 40, 3, -105, 20, 60 ) );
+                bathroom.add( createBox( wallPaintTexture, 3, 40, 60, -85, 20, 90 ) );
+                // shelves
+                bathroom.add( createBox( lightWoodTexture, 50, 3, 10, -100, 75, -75 ) );
+                bathroom.add( createBox( lightWoodTexture, 50, 3, 10, -100, 100, -75 ) );
+                bathroom.add( createBox( lightWoodTexture, 50, 3, 10, -100, 125, -75 ) );
+
+                // light - one main light and one above sink
+                bathroom.add( createPointLight( 0xffd6aa, -50, 195, 0, 0.7 ) );
+                bathroom.add( createPointLight( 0xffd6aa, -27, 133, -75, 0.7 ) );
+
+                // objects
+
+                // main light
+                loadObject( 'res/models/bathroom-light.json', wallPaintTexture, -380, 197, 370, 50, 60, 50, 0, 0, 0, 0.9 );
+
+                // above sink light
+                loadObject( 'res/models/sink-light-fixture.json', wallPaintTexture, -360, 130, 300, 40, 40, 40 );
+                loadObject( 'res/models/sink-light-shade.json', wallPaintTexture, -360, 130, 300, 40, 40, 40, 0, 0, 0, 0.9 );
+
+                // sink
+                loadObject( 'res/models/sink.json', ceramicTexture, -315, 0, -360, 50, 60, 50, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/sink-taps.json', brassTexture, -315, 0, -360, 50, 60, 50, 0, Math.PI / 2, 0 );
+
+                // sink particles
+                bathroom2SinkParticleSystem = createParticleSystem( -38, 51, -70, 24, 20, 18 );
+                bathroom.add( bathroom2SinkParticleSystem );
+
+                // above sink cupboard
+                loadObject( 'res/models/sink-cupboard.json', wallPaintTexture, -360, 70, 305, 40, 40, 40 );
+                loadObject( 'res/models/sink-cupboard-doors.json', greenWoodTexture, -360, 70, 305, 40, 40, 40 );
+                loadObject( 'res/models/sink-cupboard-mirror.json', wallPaintTexture, -360, 70, 305, 40, 40, 40, 0, 0, 0, 0.9 );
+
+                // bath
+                loadObject( 'res/models/bath.json', wallPaintTexture, 367, 0, -465, 30, 40, 47, 0, Math.PI, 0 );
+                loadObject( 'res/models/bath-taps.json', brassTexture, 367, 0, -465, 30, 40, 47, 0, Math.PI, 0 );
+                loadObject( 'res/models/bath-side-panel-fixture.json', wallPaintTexture, 320, 40, -438, 40, 60, 40, 0, Math.PI, 0 );
+                loadObject( 'res/models/bath-side-panel.json', wallPaintTexture, 320, 40, -438, 40, 60, 40, 0, Math.PI, 0, 0.5 );
+
+                // particles
+                bathParticleSystem = createParticleSystem( -80, 20, 65, 90, 50, 50 );
+                bathroom.add( bathParticleSystem );
+
+                bathroom.translateX( -333 );
+                bathroom.translateZ( 376 );
+
+                scene.add( bathroom );
+            }
+
+            function loadCupboard()
+            {
+                var cupboard = new THREE.Object3D();
+
+                // flooring
+                cupboard.add( createBox( greyCarpetTexture, 102, 3, 112, 0, 0, 0 ) );
+                // ceiling
+                cupboard.add( createBox( wallPaintTexture, 102, 3, 112, 0, 200, 0 ) );
+                // north wall (-z)
+                cupboard.add( createBox( wallPaintTexture, 102, 200, 3, 0, 100, -56 ) );
+                // east wall (x)
+                cupboard.add( createBox( wallPaintTexture, 3, 200, 112, -51, 100, 0 ) );
+                // south wall (z) 
+                cupboard.add( createBox( wallPaintTexture, 102, 200, 3, 0, 100, 56 ) );
+                // west wall - contains door - 3 parts (-x)
+                cupboard.add( createBox( wallPaintTexture, 3, 200, 26, 51, 100, -43 ) );
+                cupboard.add( createBox( wallPaintTexture, 3, 30, 60, 51, 185, 0 ) );
+                cupboard.add( createBox( wallPaintTexture, 3, 200, 26, 51, 100, 43 ) );
+
+                cupboard.translateX( -259 );
+                cupboard.translateZ( 440 );
+
+                scene.add( cupboard );
+            }
+
+            function loadLounge()
+            {
+                var lounge = new THREE.Object3D();
+
+                woodFlooringTexture.wrapS = woodFlooringTexture.wrapT = THREE.RepeatWrapping;
+                woodFlooringTexture.repeat.set( 5, 5 );
+
+                // flooring - 2 boxes and one prism - 3 parts
+                lounge.add( createBox( woodFlooringTexture, 100, 3, 200, -204, 0, -50 ) );
+                lounge.add( createBox( woodFlooringTexture, 408, 3, 300, 50, 0, 0 ) );
+
+                var prism = createPrism( woodFlooringTexture, 100, 3, 100, -154, 1.5, 150 );
+                prism.rotation.x = Math.PI / 2;
+                prism.rotation.z = Math.PI;
+                lounge.add( prism );
+
+                // ceiling - 2 boxes and one prism - 3 parts
+                lounge.add( createBox( wallPaintTexture, 100, 3, 200, -204, 200, -50 ) );
+                lounge.add( createBox( wallPaintTexture, 408, 3, 300, 50, 200, 0 ) );
+
+                var prism = createPrism( wallPaintTexture, 100, 3, 100, -154, 201.5, 150 );
+                prism.rotation.x = Math.PI / 2;
+                prism.rotation.z = Math.PI;
+                lounge.add( prism );
+
+                // north wall - contains door - 3 parts ( - z )
+                lounge.add( createBox( wallPaintTexture, 268, 200, 3, -120, 100, -150 ) );
+                lounge.add( createBox( wallPaintTexture, 60, 30, 3, 44, 185, -150 ) );
+                lounge.add( createBox( wallPaintTexture, 68, 200, 3, 108, 100, -150 ) );
+
+                // east wall (x)
+                lounge.add( createBox( wallPaintTexture, 3, 200, 200, -254, 100, -50 ) );
+
+                // southeast wall - diagonal
+                var diagonalWall = createBox( wallPaintTexture, 141, 200, 3, -203.5, 100, 100.5 );
+                diagonalWall.rotation.y = ( 3 * Math.PI ) / 4;
+                lounge.add( diagonalWall );
+
+                // south wall - contains window and door - 5 parts (z) 
+                lounge.add( createBox( wallPaintTexture, 50, 80, 3, -129, 100, 150 ) );
+                lounge.add( createBox( wallPaintTexture, 250, 60, 3, -29, 30, 150 ) );
+                lounge.add( createBox( wallPaintTexture, 250, 60, 3, -29, 170, 150 ) );
+                lounge.add( createBox( wallPaintTexture, 100, 80, 3, 46, 100, 150 ) );
+                lounge.add( createBox( wallPaintTexture, 128, 30, 3, 160, 185, 150 ) );
+                lounge.add( createBox( wallPaintTexture, 30, 200, 3, 239, 100, 150 ) );
+
+                // west wall (-x)
+                lounge.add( createBox( wallPaintTexture, 3, 200, 300, 254, 100, 0 ) );
+
+                // shelves on east wall
+                lounge.add( createBox( lightWoodTexture, 20, 3, 100, -244, 100, -20 ) );
+                lounge.add( createBox( lightWoodTexture, 20, 3, 100, -244, 75, -40 ) );
+
+                createLoungeSpotLights( 0xffd6aa, -300, 185, 636, 0.4 );
+                createLoungeSpotLights( 0xffd6aa, -38, 185, 671, 0.4 );
+
+                // objects
+
+                // main light 1
+                loadObject( 'res/models/lounge-light.json', brassTexture, -300, 183, 636, 30, 30, 30 );
+
+                // main light 2
+                loadObject( 'res/models/lounge-light.json', brassTexture, -38, 183, 671, 30, 30, 30 );
+
+                // sofa
+                loadObject( 'res/models/sofa.json', blackFabricTexture, -300, 0, 540, 40, 40, 40 );
+                loadObject( 'res/models/sofa.json', blackFabricTexture, 680, 0, 160, 40, 40, 40, 0, ( 3 * Math.PI ) / 2, 0 );
+
+                // lounge tv stand
+                loadObject( 'res/models/lounge-desk.json', blackWoodTexture, -245, 0, -785, 30, 30, 30, 0, ( 3 * Math.PI ) / 4, 0 );
+
+                // tv
+                loadObject( 'res/models/tv.json', blackPlasticTexture, 245, 45, 785, 40, 40, 40, 0, ( 7 * Math.PI ) / 4, 0 );
+                loadObject( 'res/models/tv-screen.json', wallPaintTexture, 245, 45, 785, 40, 40, 40, 0, ( 7 * Math.PI ) / 4, 0 );
+
+                // coffee table
+                loadObject( 'res/models/table.json', lightWoodTexture, -300, 0, 630, 20, 15, 30 );
+
+                // table next to sofa
+                loadObject( 'res/models/table.json', lightWoodTexture, -420, 0, 550, 15, 15, 25 );
+
+                // dining table
+                loadObject( 'res/models/table.json', lightWoodTexture, -680, 0, -30, 30, 30, 30, 0, Math.PI / 2, 0 );
+
+                // dining chairs
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, -30, 0, 630, 25, 25, 25 );
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, -663, 0, -60, 25, 25, 25, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, -697, 0, -60, 25, 25, 25, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, 30, 0, -730, 25, 25, 25, 0, Math.PI, 0 );
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, 663, 0, 0, 25, 25, 25, 0, ( 3 * Math.PI ) / 2, 0 );
+                loadObject( 'res/models/dining-chair.json', lightWoodTexture, 697, 0, 0, 25, 25, 25, 0, ( 3 * Math.PI ) / 2, 0 );
+
+                lounge.translateX( -204 );
+                lounge.translateZ( 654 );
+
+                scene.add( lounge );
+            }
+
+            function loadKitchen()
+            {
+                var kitchen = new THREE.Object3D();
+
+                // flooring
+                kitchen.add( createBox( woodFlooringTexture, 162, 3, 208, 0, 0, 0 ) );
+                // ceiling
+                kitchen.add( createBox( whitePaintTexture, 162, 3, 208, 0, 200, 0 ) );
+                // north wall (-z)
+                kitchen.add( createBox( wallPaintTexture, 162, 200, 3, 0, 100, -104 ) );
+                // east wall (x)
+                kitchen.add( createBox( wallPaintTexture, 3, 200, 208, -81, 100, 0 ) );
+                // no south wall
+
+                // west wall (-x)
+                kitchen.add( createBox( wallPaintTexture, 3, 200, 208, 81, 100, 0 ) );
+
+                // light - main light
+                kitchen.add( createPointLight( 0xffd6aa, 0, 195, 0, 0.6 ) );
+
+                // kitchen components
+                loadObject( 'res/models/kitchen-overhead-cupboards.json', wallPaintTexture, -440, 120, -99, 56, 45, 50, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/kitchen-larder.json', wallPaintTexture, -85, 0, 480, 50, 50, 50, 0, 0, 0 );
+                loadObject( 'res/models/kitchen-counters.json', wallPaintTexture, -85, 0, 439, 50, 50, 51, 0, 0, 0 );
+
+                // fridge
+                loadObject( 'res/models/kitchen-larder.json', ceramicTexture, -30, 0, -480, 40, 50, 50, 0, Math.PI, 0 );
+
+                // washing machine
+                loadObject( 'res/models/washing-machine.json', ceramicTexture, -20, 0, -398, 50, 53, 50, 0, Math.PI, 0 );
+                loadObject( 'res/models/washing-machine-window.json', ceramicTexture, -20, 0, -398, 50, 53, 50, 0, Math.PI, 0, 0.9 );
+
+                // sink
+                loadObject( 'res/models/kitchen-sink.json', ceramicTexture, -32, 71, 317, 47, 50, 50 );
+                loadObject( 'res/models/kitchen-sink-taps.json', brassTexture, -32, 71, 317, 47, 50, 50 );
+
+                // sink particle system
+                kitchenSinkParticleSystem = createParticleSystem( -15, 75, -90, 27, 20, 20 );
+                kitchen.add( kitchenSinkParticleSystem );
+
+                // kitchen ceiling decor
+                loadObject( 'res/models/kitchen-ceiling-decor.json', redMetalTexture, -25, 196, 400, 50, 50, 50 );
+
+                // cooker
+                loadObject( 'res/models/cooker.json', ceramicTexture, -398, 0, -88, 55, 53, 55, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/cooker-window.json', wallPaintTexture, -398, 0, -88, 55, 53, 55, 0, Math.PI / 2, 0 );
+                loadObject( 'res/models/cooker-top.json', blackPlasticTexture, -398, 0, -88, 55, 53, 55, 0, Math.PI / 2, 0 );
+
+                kitchen.translateX( -31 );
+                kitchen.translateZ( 400 );
+
+                scene.add( kitchen );
+            }
+
+            function loadFrame()
+            {
+                var frame = new THREE.Object3D();
+
+                brickTexture.wrapS = brickTexture.wrapT = THREE.RepeatWrapping;
+                brickTexture.repeat.set( 5, 5 );
+                concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
+                concreteTexture.repeat.set( 6, 6 );
+
+                // flooring
+                frame.add( createBox( concreteTexture, 478, 3, 295, -228, 0, 143 ) );
+                frame.add( createBox( concreteTexture, 524, 3, 530, -203, 0, 551 ) );
+
+                // ceiling
+                frame.add( createBox( concreteTexture, 478, 3, 295, -228, 216, 143 ) );
+                frame.add( createBox( concreteTexture, 524, 3, 530, -203, 216, 551 ) );
+
+                // north wall - contains two windows (-z)
+                frame.add( createBox( brickTexture, 49, 216, 3, 36, 108, 286 ) );
+                frame.add( createBox( brickTexture, 478, 108, 3, -228, 54, -5 ) );
+                frame.add( createBox( brickTexture, 478, 28, 3, -228, 202, -5 ) );
+                frame.add( createBox( brickTexture, 91, 80, 3, -34.5, 148, -5 ) );
+                frame.add( createBox( brickTexture, 178, 80, 3, -249, 148, -5 ) );
+                frame.add( createBox( brickTexture, 49, 80, 3, -442.5, 148, -5 ) );
+
+                // east wall (x)
+                frame.add( createBox( brickTexture, 3, 216, 820, -467, 108, 406 ) );
+
+                // south wall (z) 
+                frame.add( createBox( brickTexture, 359, 68, 3, -287.5, 34, 816 ) );
+                frame.add( createBox( brickTexture, 359, 68, 3, -287.5, 182, 816 ) );
+                frame.add( createBox( brickTexture, 167, 38, 3, -24.5, 197, 816 ) );
+                frame.add( createBox( brickTexture, 159, 80, 3, -387.5, 108, 816 ) );
+                frame.add( createBox( brickTexture, 100, 80, 3, -158, 108, 816 ) );
+                frame.add( createBox( brickTexture, 39, 180, 3, 39.5, 90, 816 ) );
+                frame.add( createBox( brickTexture, 129, 10, 3, -44, 4.5, 816 ) );
+
+                // west wall (-x)
+                frame.add( createBox( brickTexture, 3, 216, 530, 59, 108, 551 ) );
+                frame.add( createBox( brickTexture, 3, 216, 223, 11, 108, 107 ) );
+                frame.add( createBox( brickTexture, 3, 38, 60, 11, 197, 248 ) );
+                frame.add( createBox( brickTexture, 3, 216, 10, 11, 108, 283 ) );
+                frame.add( createBox( brickTexture, 3, 10, 60, 11, 4.5, 248 ) );
+
+                frame.translateY( -8 );
+
+                scene.add( frame );
+            }
+
+            function addDoors()
+            {
+                var doorFrame = createDoorFrame( 6, 0, 248 );
+                var door = createDoor( 2, 0, 270.5 );
+                door.rotation.y = Math.PI / 2;
+                doorFrame.rotation.y = Math.PI / 2;
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -160, 0, 203 );
+                door = createDoor( -183, 0, 199 );
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -248, 0, 203 );
+                door = createDoor( -271, 0, 199 );
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -291, 0, 248 );
+                door = createDoor( -297, 0, 269 );
+                door.rotation.y = Math.PI / 2;
+                doorFrame.rotation.y = Math.PI / 2;
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -207, 0, 336 );
+                door = createDoor( -209, 0, 360 );
+                door.rotation.y = Math.PI / 2;
+                doorFrame.rotation.y = Math.PI / 2;
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -207, 0, 440 );
+                door = createDoor( -209, 0, 464 );
+                door.rotation.y = Math.PI / 2;
+                doorFrame.rotation.y = Math.PI / 2;
+                scene.add( door );
+                scene.add( doorFrame );
+
+                doorFrame = createDoorFrame( -162, 0, 499 );
+                door = createDoor( -184, 0, 495 );
+                scene.add( door );
+                scene.add( doorFrame );
+
+                door = createBackDoubleDoor( -45, 0, 810 );
+                scene.add( door );
+            }
+
+            function addWindows()
+            {
+                var window = createWindow( -120, 100, -2.5 );
+                scene.add( window );
+
+                window = createWindow( -378, 100, -2.5 );
+                scene.add( window );
+
+                window = createBackWindow( -258, 60, 810 );
+                scene.add( window );
+            }
+
+            function loadObject( path, texture, xPosition = 1, yPosition = 1, zPosition = 1,
+                    xScale = 1, yScale = 1, zScale = 1,
+                    xRotation = 0, yRotation = 0, zRotation = 0,
+                    opacity = 1.0 )
+            {
+                var transparent = false;
+                if ( opacity !== 1.0 )
+                {
+                    transparent = true;
+                }
+
+                JSONLoader.load( path, function ( geometry )
+                {
+                    var mesh = new THREE.Mesh( geometry, new THREE.MeshPhongMaterial( { map: texture, transparent: transparent, opacity: opacity } ) );
+                    mesh.scale.set( xScale, yScale, zScale );
+                    mesh.rotateX( xRotation );
+                    mesh.rotateY( yRotation );
+                    mesh.rotateZ( zRotation );
+                    mesh.translateX( xPosition );
+                    mesh.translateY( yPosition );
+                    mesh.translateZ( zPosition );
+                    if ( !transparent )
+                    {
+                        mesh.castShadow = true;
+                    }
+                    mesh.receiveShadow = true;
+                    scene.add( mesh );
+                } );
+            }
+
+            function loadPlant()
+            {
+                // Will create 4 lindermayer trees and rotate around in a circle
+                constructPlantTree( -20, 60, 180 );
+                constructPlantTree( -20, 60, 180, Math.PI / 4 );
+                //constructPlantTree( -20, 60, 180, Math.PI / 2 );
+                constructPlantTree( -20, 60, 180, ( 3 * Math.PI ) / 4 );
+                loadObject( 'res/models/plant-pot.json', wallPaintTexture, -20, 58, 180, 50, 50, 50 );
+            }
+
+            // -----------------------------------------------------------------
+            // Helper Functions
+            // -----------------------------------------------------------------
+
+            function createBox( texture, xLength, yLength, zLength, xPosition, yPosition, zPosition )
+            {
+                var boxGeometry = new THREE.BoxBufferGeometry( xLength, yLength, zLength );
+                var boxMaterial = new THREE.MeshPhongMaterial( { map: texture } );
+                var box = new THREE.Mesh( boxGeometry, boxMaterial );
+                box.receiveShadow = true;
+                box.castShadow = true;
+                box.position.set( xPosition, yPosition, zPosition );
+                return box;
+            }
+
+            function createPrism( texture, xLength, yLength, zLength, xPosition, yPosition, zPosition )
+            {
+                var extrudeSettings = { amount: yLength, bevelEnabled: false, steps: 2 };
+
+                var prismShape = new THREE.Shape();
+                prismShape.moveTo( 0, 0 );
+                prismShape.lineTo( 0, xLength );
+                prismShape.lineTo( zLength, xLength );
+
+                var prismGeometry = new THREE.ExtrudeGeometry( prismShape, extrudeSettings );
+                assignUVs( prismGeometry );
+
+                var prismMaterial = new THREE.MeshPhongMaterial( { map: texture } );
+                var prism = new THREE.Mesh( prismGeometry, prismMaterial );
+                prism.receiveShadow = true;
+                prism.castShadow = true;
+                prism.position.set( xPosition, yPosition, zPosition );
+                return prism;
+            }
+
+            function createPointLight( color, xPosition, yPosition, zPosition, intensity = 1, castShadow = true )
+            {
+                var light = new THREE.PointLight( color, intensity );
+                light.position.set( xPosition, yPosition, zPosition );
+                if ( castShadow )
+                {
+                    light.castShadow = true;
+                }
+                lights.push( light );
+                return light;
+            }
+
+            function createLoungeSpotLights( color, xPosition, yPosition, zPosition, intensity = 1 )
+            {
+                var spotLight = new THREE.SpotLight( color, intensity );
+                spotLight.position.set( xPosition, yPosition, zPosition );
+                spotLight.castShadow = true;
+                spotLight.penumbra = 0.5;
+                spotLight.angle = 2.0;
+                scene.add( spotLight );
+                lights.push( spotLight );
+                spotLight.target.position.set( xPosition + 30, yPosition - 20, zPosition - 15 );
+                scene.add( spotLight.target );
+
+                var spotLight2 = new THREE.SpotLight( color, intensity );
+                spotLight2.position.set( xPosition, yPosition, zPosition );
+                spotLight2.castShadow = true;
+                spotLight2.penumbra = 0.5;
+                spotLight.angle = 2.0;
+                scene.add( spotLight2 );
+                lights.push( spotLight2 );
+                spotLight2.target.position.set( xPosition - 30, yPosition - 20, zPosition - 15 );
+                scene.add( spotLight2.target );
+
+                var spotLight3 = new THREE.SpotLight( color, intensity );
+                spotLight3.position.set( xPosition, yPosition, zPosition );
+                spotLight3.castShadow = true;
+                spotLight3.penumbra = 0.5;
+                spotLight.angle = 2.0;
+                scene.add( spotLight3 );
+                lights.push( spotLight3 );
+                spotLight3.target.position.set( xPosition, yPosition - 20, zPosition + 15 );
+                scene.add( spotLight3.target );
+            }
+
+            function createDoorFrame( xPosition, yPosition, zPosition )
+            {
+                var doorFrame = new THREE.Object3D();
+
+                // frame + door
+                doorFrame.add( createBox( whitePaintTexture, 60, 3, 15, 0, 1.5, 0 ) );
+                doorFrame.add( createBox( whitePaintTexture, 5, 173, 15, 30, 85, 0 ) );
+                doorFrame.add( createBox( whitePaintTexture, 5, 173, 15, -30, 85, 0 ) );
+                doorFrame.add( createBox( whitePaintTexture, 60, 3, 15, 0, 170, 0 ) );
+
+                doorFrame.position.set( xPosition, yPosition, zPosition );
+                return doorFrame;
+            }
+
+            function createDoor( xPosition, yPosition, zPosition )
+            {
+                var door = new THREE.Object3D();
+
+                var doorMesh = createBox( lightWoodTexture, 60, 170, 5, 22.5, 85, 4 );
+                doorMesh.name = "door";
+                doorMesh.state = "closed";
+                doorMesh.index = doors.length;
+                doorMesh.currentRotation = 0.00;
+                doors.push( doorMesh );
+                door.add( doorMesh );
+
+                // handle
+                door.add( createBox( brassTexture, 3, 13, 1, 45, 80, 7 ) );
+                door.add( createBox( brassTexture, 2, 2, 6, 45, 80, 10 ) );
+                door.add( createBox( brassTexture, 8, 3, 1, 42, 80, 13 ) );
+
+                // other-side handle
+                door.add( createBox( brassTexture, 3, 13, 1, 45, 80, 1 ) );
+                door.add( createBox( brassTexture, 2, 2, 6, 45, 80, -2 ) );
+                door.add( createBox( brassTexture, 8, 3, 1, 42, 80, -5 ) );
+
+
+                door.position.set( xPosition, yPosition, zPosition );
+                return door;
+            }
+
+            function createWindow( xPosition, yPosition, zPosition )
+            {
+                var window = new THREE.Object3D();
+
+                // frame
+                window.add( createBox( woodTexture, 80, 5, 10, 0, 2.5, 0 ) );
+                window.add( createBox( woodTexture, 80, 5, 10, 0, 77.5, 0 ) );
+                window.add( createBox( woodTexture, 5, 80, 10, 37.5, 40, 0 ) );
+                window.add( createBox( woodTexture, 5, 80, 10, -37.5, 40, 0 ) );
+
+                // inner frame
+                window.add( createBox( woodTexture, 5, 80, 10, 0, 40, 0 ) );
+                window.add( createBox( woodTexture, 80, 5, 10, 0, 40, 0 ) );
+
+                // glass
+                var windowGeometry = new THREE.BoxGeometry( 80, 80, 5 );
+                windowGeometry.translate( 0, 40, 0 );
+                var glass = new THREE.MeshStandardMaterial( { color: 0xFFFFFF, transparent: true, opacity: 0.25 } );
+                window.add( new THREE.Mesh( windowGeometry, glass ) );
+
+                window.position.set( xPosition, yPosition, zPosition );
+                return window;
+            }
+
+            function createBackDoubleDoor( xPosition, yPosition, zPosition )
+            {
+                var backDoor = new THREE.Object3D();
+
+                // frame
+                backDoor.add( createBox( woodTexture, 128, 5, 16, 0, 2.5, 0 ) );
+                backDoor.add( createBox( woodTexture, 128, 5, 16, 0, 167.5, 0 ) );
+                backDoor.add( createBox( woodTexture, 5, 170, 16, 64, 85, 0 ) );
+                backDoor.add( createBox( woodTexture, 5, 170, 16, -64, 85, 0 ) );
+
+                // inner frame
+                backDoor.add( createBox( woodTexture, 5, 170, 10, 0, 85, 0 ) );
+                backDoor.add( createBox( woodTexture, 128, 5, 10, 0, 85, 0 ) );
+
+                // glass
+                var windowGeometry = new THREE.BoxGeometry( 128, 170, 5 );
+                windowGeometry.translate( 0, 85, 0 );
+                var glass = new THREE.MeshStandardMaterial( { color: 0xFFFFFF, transparent: true, opacity: 0.25 } );
+                backDoor.add( new THREE.Mesh( windowGeometry, glass ) );
+
+                backDoor.position.set( xPosition, yPosition, zPosition );
+                return backDoor;
+            }
+
+            function createBackWindow( xPosition, yPosition, zPosition )
+            {
+                var window = new THREE.Object3D();
+
+                // frame
+                window.add( createBox( woodTexture, 100, 5, 16, 0, 2.5, 0 ) );
+                window.add( createBox( woodTexture, 100, 5, 16, 0, 77.5, 0 ) );
+                window.add( createBox( woodTexture, 5, 80, 16, -47.5, 40, 0 ) );
+                window.add( createBox( woodTexture, 5, 80, 16, 47.5, 40, 0 ) );
+
+                // inner frame
+                window.add( createBox( woodTexture, 5, 80, 10, -25, 40, 0 ) );
+                window.add( createBox( woodTexture, 5, 80, 10, 25, 40, 0 ) );
+                window.add( createBox( woodTexture, 100, 5, 10, 0, 40, 0 ) );
+
+                // glass
+                var windowGeometry = new THREE.BoxGeometry( 100, 80, 5 );
+                windowGeometry.translate( 0, 40, 0 );
+                var glass = new THREE.MeshStandardMaterial( { color: 0xFFFFFF, transparent: true, opacity: 0.25 } );
+                window.add( new THREE.Mesh( windowGeometry, glass ) );
+
+                window.position.set( xPosition, yPosition, zPosition );
+                return window;
+            }
+
+            function assignUVs( geometry )
+            {
+                geometry.computeBoundingBox();
+
+                var max = geometry.boundingBox.max;
+                var min = geometry.boundingBox.min;
+                var offset = new THREE.Vector2( 0 - min.x, 0 - min.y );
+                var range = new THREE.Vector2( max.x - min.x, max.y - min.y );
+                var faces = geometry.faces;
+
+                geometry.faceVertexUvs[0] = [ ];
+
+                for ( var i = 0; i < faces.length; i++ )
+                {
+                    var v1 = geometry.vertices[faces[i].a];
+                    var v2 = geometry.vertices[faces[i].b];
+                    var v3 = geometry.vertices[faces[i].c];
+
+                    geometry.faceVertexUvs[0].push( [
+                        new THREE.Vector2( ( v1.x + offset.x ) / range.x, ( v1.y + offset.y ) / range.y ),
+                        new THREE.Vector2( ( v2.x + offset.x ) / range.x, ( v2.y + offset.y ) / range.y ),
+                        new THREE.Vector2( ( v3.x + offset.x ) / range.x, ( v3.y + offset.y ) / range.y )
+                    ] );
+                }
+                geometry.uvsNeedUpdate = true;
+            }
+
+            // -----------------------------------------------------------------
+            // Lindermayer System
+            // -----------------------------------------------------------------
+
+            var params = new Params();
+            var rules = new Rules();
+            var colors = new Colors();
+            var Plant = '';
+
+            function Params()
+            {
+                this.iterations = 2;
+                this.delta = 18; // incremental angle
+                this.thetaRandomness = 0;
+                this.alpha = 90; // heading direction
+                this.step = 4;  // branch length
+                this.scaleRandomness = 0;
+                this.constantWidth = false;
+                this.slope = 0;
+            }
+
+            function Colors()
+            {
+                this.background = "#ffffff";
+                this.general = "#000000";
+                this.random = false;
+                this.alpha = 0.8;
+            }
+
+            function Rules()
+            {
+                this.axiom = 'F';
+                this.mainRule = 'FF-[-F+F+F]+[+F-F-F]';
+                this.Rule2 = '';
+            }
+
+            function constructPlantTree( xPosition, yPosition, zPosition, yRotation )
+            {
+                var tree = new THREE.Object3D();
+                Plant = GetAxiomTree();
+
+                var n = Plant.length;
+                var stackX = [ ], stackY = [ ], stackA = [ ];
+                var delta = params.delta * Math.PI / 180;
+                var step = params.step;
+                var alpha = -params.alpha * Math.PI / 180;
+                var x;
+                var y;
+                var x0 = 0;
+                var y0 = 0;
+
+                for ( var j = 0; j < n; j++ )
+                {
+                    var a = Plant[j];
+                    if ( a === "+" )
+                    {
+                        alpha -= delta;
+                    }
+                    if ( a === "-" )
+                    {
+                        alpha += delta;
+                    }
+                    // move forward and draw a line
+                    if ( a === "F" )
+                    {
+                        x = x0 + Math.cos( alpha ) * step;
+                        y = y0 + Math.sin( alpha ) * step;
+
+                        var treePartMesh = constructTreePart( x0, y0, x, y );
+                        treePartMesh.rotation.x = Math.PI;
+                        treePartMesh.rotation.y = yRotation;
+                        treePartMesh.position.x = xPosition;
+                        treePartMesh.position.y = yPosition;
+                        treePartMesh.position.z = zPosition;
+                        treePartMesh.castShadow = true;
+                        treePartMesh.receiveShadow = true;
+
+                        tree.add( treePartMesh );
+
+                        x0 = x;
+                        y0 = y;
+                    }
+                    // move without drawing a line
+                    if ( a === "f" )
+                    {
+                        x0 = x0 + Math.cos( alpha ) * step;
+                        y0 = y0 + Math.sin( alpha ) * step;
+                    }
+                    if ( a === "[" )
+                    {
+                        stackX.push( x0 );
+                        stackY[stackY.length] = y0;
+                        stackA[stackA.length] = alpha;
+                    }
+                    if ( a === "]" )
+                    {
+                        x0 = stackX.pop();
+                        y0 = stackY.pop();
+                        alpha = stackA.pop();
+                    }
+                }
+                scene.add( tree );
+            }
+
+            function GetAxiomTree()
+            {
+                var Waxiom = rules.axiom;
+                var newF = rules.mainRule;
+                var newf = 'ff';
+                var newx = rules.Rule2;
+                var level = params.iterations;
+
+                while ( level > 0 )
+                {
+                    var T = '';
+                    for ( var j = 0; j < Waxiom.length; j++ )
+                    {
+                        var a = Waxiom[j];
+                        if ( a === 'F' )
+                        {
+                            T += newF;
+                        }
+                        else
+                        if ( a === 'f' )
+                        {
+                            T += newf;
+                        }
+                        else
+                        if ( a === 'X' )
+                        {
+                            T += newx;
+                        }
+                        else
+                        {
+                            T += a;
+                        }
+                    }
+                    Waxiom = T;
+                    level--;
+                }
+                return Waxiom;
+            }
+
+            function constructTreePart( x, y, x0, y0 )
+            {
+                var treePartShape = new THREE.Shape();
+                treePartShape.moveTo( x, y );
+                treePartShape.lineTo( x0, y0 );
+                treePartShape.lineTo( x0 - 1, y0 + 1 );
+                treePartShape.lineTo( x - 1, y + 1 );
+
+                var shapeGeometry = new THREE.ShapeGeometry( treePartShape );
+                return new THREE.Mesh( shapeGeometry, new THREE.MeshPhongMaterial( { color: 0x006400, side: THREE.DoubleSide } ) );
+            }
+
+            // -----------------------------------------------------------------
+            // Particle System
+            // -----------------------------------------------------------------
+
+            var particles;
+            var bathParticleSystem;
+
+            function createParticleSystem( xPosition, yPosition, zPosition, xLength, yLength, zLength )
+            {
+                var geometry = new THREE.Geometry();
+                for ( i = 0; i < 5000; i++ )
+                {
+                    var vertex = new THREE.Vector3();
+                    vertex.x = Math.random() * xLength;
+                    vertex.y = Math.random() * yLength;
+                    vertex.z = Math.random() * zLength;
+                    geometry.vertices.push( vertex );
+                }
+                particleSystem = new THREE.Points( geometry, new THREE.PointsMaterial( { color: 0x0000ff, transparent: true, opacity: 0.7 } ) );
+                particleSystem.position.set( xPosition, yPosition, zPosition );
+                return particleSystem;
+            }
+
+            initScene();
+
+        </script>
+    </body>
+</html>
